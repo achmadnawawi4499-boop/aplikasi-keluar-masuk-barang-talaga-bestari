@@ -512,13 +512,80 @@
         .save-config {
             background: linear-gradient(135deg, #3498db, #2980b9);
         }
+
+        .location-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .location-tag {
+            background: #e1f0fa;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .location-tag .remove-location {
+            cursor: pointer;
+            color: #e74c3c;
+        }
+        
+        .multi-location {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .location-input-group {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .location-input-group input {
+            flex: 1;
+        }
+        
+        .add-location-btn {
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            padding: 10px;
+            font-size: 14px;
+        }
+
+        .location-list {
+            margin-top: 5px;
+        }
+
+        .location-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .location-item:last-child {
+            border-bottom: none;
+        }
+
+        .remove-location-btn {
+            color: #e74c3c;
+            cursor: pointer;
+            background: none;
+            border: none;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
             <h1><i class="fas fa-warehouse"></i> Sistem Keluar Masuk Barang</h1>
-            <p class="description">Kelola stok barang dengan mudah dan efisien property of Ahmad Nawawi</p>
+            <p class="description">Kelola stok barang dengan mudah dan efisien - Property of Ahmad Nawawi</p>
         </header>
 
         <div class="config-panel">
@@ -622,8 +689,9 @@
                             <label for="location">Lokasi</label>
                             <div class="input-with-icon">
                                 <i class="fas fa-map-marker-alt"></i>
-                                <input type="text" id="location" placeholder="Lokasi penyimpanan" required>
+                                <input type="text" id="location" placeholder="Masukkan lokasi barang" required>
                             </div>
+                            <div class="location-list" id="location-list"></div>
                         </div>
                         <div class="form-group">
                             <label for="employee">Nama Karyawan</label>
@@ -738,6 +806,7 @@
         let items = [];
         let transactions = [];
         let uploadData = []; // Untuk menyimpan data yang diupload
+        let itemLocations = {}; // Untuk menyimpan multiple locations per item
         
         // Elemen UI
         const itemForm = document.getElementById('item-form');
@@ -746,6 +815,8 @@
         const notification = document.getElementById('notification');
         const barcodeInput = document.getElementById('barcode');
         const nameInput = document.getElementById('name');
+        const locationInput = document.getElementById('location');
+        const locationList = document.getElementById('location-list');
         
         // Fungsi untuk inisialisasi Supabase
         function initSupabase() {
@@ -795,6 +866,9 @@
                 if (transactionsError) throw transactionsError;
                 transactions = transactionsData || [];
                 
+                // Proses multiple locations dari items
+                processItemLocations();
+                
                 // Perbarui UI
                 updateStats();
                 updateHistoryTable();
@@ -805,6 +879,28 @@
                 console.error('Error loading data from Supabase:', error);
                 showNotification('Gagal memuat data dari Supabase: ' + error.message, false);
             }
+        }
+        
+        // Fungsi untuk memproses multiple locations dari items
+        function processItemLocations() {
+            itemLocations = {};
+            
+            items.forEach(item => {
+                if (!itemLocations[item.barcode]) {
+                    itemLocations[item.barcode] = new Set();
+                }
+                
+                if (item.location) {
+                    // Jika location adalah string yang berisi multiple locations (dipisahkan koma)
+                    if (item.location.includes(',')) {
+                        item.location.split(',').forEach(loc => {
+                            itemLocations[item.barcode].add(loc.trim());
+                        });
+                    } else {
+                        itemLocations[item.barcode].add(item.location);
+                    }
+                }
+            });
         }
         
         // Fungsi untuk menyimpan data ke Supabase
@@ -879,22 +975,26 @@
         
         // Fungsi untuk memperbarui statistik
         function updateStats() {
-            const today = new Date().toLocaleDateString();
+            const today = new Date().toISOString().split('T')[0]; // Format YYYY-MM-DD
             
             // Hitung total barang
             const totalItems = items.reduce((total, item) => total + item.stock, 0);
             document.getElementById('total-items').textContent = totalItems;
             
             // Hitung barang masuk hari ini
-            const inToday = transactions.filter(transaction => 
-                transaction.type === 'in' && transaction.date === today
-            ).reduce((total, transaction) => total + transaction.quantity, 0);
+            const inToday = transactions.filter(transaction => {
+                const transactionDate = new Date(transaction.created_at).toISOString().split('T')[0];
+                return transaction.type === 'in' && transactionDate === today;
+            }).reduce((total, transaction) => total + transaction.quantity, 0);
+            
             document.getElementById('in-today').textContent = inToday;
             
             // Hitung barang keluar hari ini
-            const outToday = transactions.filter(transaction => 
-                transaction.type === 'out' && transaction.date === today
-            ).reduce((total, transaction) => total + transaction.quantity, 0);
+            const outToday = transactions.filter(transaction => {
+                const transactionDate = new Date(transaction.created_at).toISOString().split('T')[0];
+                return transaction.type === 'out' && transactionDate === today;
+            }).reduce((total, transaction) => total + transaction.quantity, 0);
+            
             document.getElementById('out-today').textContent = outToday;
             
             // Total transaksi
@@ -912,8 +1012,11 @@
             
             transactions.forEach(transaction => {
                 const row = document.createElement('tr');
+                const transactionDate = new Date(transaction.created_at);
+                const formattedDate = formatDateForDisplay(transactionDate);
+                
                 row.innerHTML = `
-                    <td>${transaction.date} ${transaction.time}</td>
+                    <td>${formattedDate}</td>
                     <td>${transaction.barcode}</td>
                     <td>${transaction.name}</td>
                     <td>${transaction.quantity}</td>
@@ -922,6 +1025,17 @@
                     <td>${transaction.employee}</td>
                 `;
                 historyBody.appendChild(row);
+            });
+        }
+        
+        // Fungsi untuk memformat tanggal untuk tampilan
+        function formatDateForDisplay(date) {
+            return date.toLocaleDateString('id-ID', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
             });
         }
         
@@ -934,13 +1048,43 @@
                 return;
             }
             
+            // Buat map untuk mengelompokkan item berdasarkan barcode
+            const itemMap = {};
+            
             items.forEach(item => {
+                if (!itemMap[item.barcode]) {
+                    itemMap[item.barcode] = {
+                        barcode: item.barcode,
+                        name: item.name,
+                        stock: 0,
+                        locations: new Set()
+                    };
+                }
+                
+                itemMap[item.barcode].stock += item.stock;
+                
+                // Tambahkan location ke Set
+                if (item.location) {
+                    if (item.location.includes(',')) {
+                        item.location.split(',').forEach(loc => {
+                            itemMap[item.barcode].locations.add(loc.trim());
+                        });
+                    } else {
+                        itemMap[item.barcode].locations.add(item.location);
+                    }
+                }
+            });
+            
+            // Tampilkan item yang sudah dikelompokkan
+            Object.values(itemMap).forEach(item => {
                 const row = document.createElement('tr');
+                const locations = Array.from(item.locations).join(', ');
+                
                 row.innerHTML = `
                     <td>${item.barcode}</td>
                     <td>${item.name}</td>
                     <td>${item.stock}</td>
-                    <td>${item.location}</td>
+                    <td>${locations || '-'}</td>
                     <td class="action-buttons">
                         <button class="btn-edit" onclick="editItem('${item.barcode}')"><i class="fas fa-edit"></i> Edit</button>
                         <button class="btn-delete" onclick="deleteItem('${item.barcode}')"><i class="fas fa-trash"></i> Hapus</button>
@@ -998,10 +1142,70 @@
                 document.getElementById('name').value = item.name;
                 document.getElementById('location').value = item.location;
                 
+                // Tampilkan daftar lokasi untuk item ini
+                updateLocationList(barcode);
+                
                 // Buka tab input
                 openTab('input-tab');
                 
                 showNotification(`Data barang ${item.name} telah dimuat untuk edit. Jangan lupa simpan setelah perubahan.`);
+            }
+        }
+        
+        // Fungsi untuk memperbarui daftar lokasi
+        function updateLocationList(barcode) {
+            locationList.innerHTML = '';
+            
+            if (itemLocations[barcode] && itemLocations[barcode].size > 0) {
+                const title = document.createElement('p');
+                title.style.fontWeight = 'bold';
+                title.style.marginBottom = '10px';
+                title.textContent = 'Lokasi yang tersedia:';
+                locationList.appendChild(title);
+                
+                itemLocations[barcode].forEach(location => {
+                    const locationItem = document.createElement('div');
+                    locationItem.className = 'location-item';
+                    locationItem.innerHTML = `
+                        <span>${location}</span>
+                        <button class="remove-location-btn" onclick="removeLocation('${barcode}', '${location}')">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    `;
+                    locationList.appendChild(locationItem);
+                });
+            }
+        }
+        
+        // Fungsi untuk menghapus lokasi
+        function removeLocation(barcode, location) {
+            if (itemLocations[barcode]) {
+                itemLocations[barcode].delete(location);
+                updateLocationList(barcode);
+                
+                // Perbarui juga data di Supabase
+                updateItemLocationsInSupabase(barcode);
+            }
+        }
+        
+        // Fungsi untuk memperbarui lokasi item di Supabase
+        async function updateItemLocationsInSupabase(barcode) {
+            if (!supabase) return;
+            
+            try {
+                const locations = Array.from(itemLocations[barcode] || []).join(',');
+                
+                const { error } = await supabase
+                    .from('items')
+                    .update({ location: locations })
+                    .eq('barcode', barcode);
+                
+                if (error) throw error;
+                
+                showNotification('Lokasi berhasil diperbarui');
+            } catch (error) {
+                console.error('Error updating locations:', error);
+                showNotification('Gagal memperbarui lokasi: ' + error.message, false);
             }
         }
         
@@ -1026,6 +1230,9 @@
                 // Hapus dari array lokal
                 items = items.filter(item => item.barcode !== barcode);
                 transactions = transactions.filter(transaction => transaction.barcode !== barcode);
+                
+                // Hapus dari itemLocations
+                delete itemLocations[barcode];
                 
                 // Perbarui UI
                 updateStockTable();
@@ -1062,6 +1269,7 @@
                             barcodeInput.value = item.barcode;
                             nameInput.value = item.name;
                             document.getElementById('location').value = item.location;
+                            updateLocationList(item.barcode);
                             closeAllLists();
                         });
                         list.appendChild(itemElement);
@@ -1093,6 +1301,7 @@
                             nameInput.value = item.name;
                             barcodeInput.value = item.barcode;
                             document.getElementById('location').value = item.location;
+                            updateLocationList(item.barcode);
                             closeAllLists();
                         });
                         list.appendChild(itemElement);
@@ -1186,16 +1395,14 @@
                         continue;
                     }
                     
-                    // Waktu transaksi
-                    const now = new Date();
-                    const date = now.toLocaleDateString();
-                    const time = now.toLocaleTimeString();
+                    // Waktu transaksi (gunakan format ISO)
+                    const now = new Date().toISOString();
                     
                     // Simpan transaksi ke Supabase
                     const { error: transactionError } = await supabase
                         .from('transactions')
                         .insert({
-                            barcode, name, quantity, type, location, employee, date, time
+                            barcode, name, quantity, type, location, employee, created_at: now
                         });
                     
                     if (transactionError) {
@@ -1220,9 +1427,19 @@
                     if (existingItem) {
                         // Jika barang sudah ada, update stok
                         let newStock = existingItem.stock;
+                        let currentLocation = existingItem.location || '';
                         
                         if (type === 'in') {
                             newStock += quantity;
+                            
+                            // Tambahkan lokasi baru jika belum ada
+                            if (location && !currentLocation.includes(location)) {
+                                if (currentLocation) {
+                                    currentLocation += `, ${location}`;
+                                } else {
+                                    currentLocation = location;
+                                }
+                            }
                         } else {
                             // Cek stok cukup
                             if (existingItem.stock < quantity) {
@@ -1235,7 +1452,10 @@
                         
                         const { error: updateError } = await supabase
                             .from('items')
-                            .update({ stock: newStock, location: location })
+                            .update({ 
+                                stock: newStock, 
+                                location: currentLocation
+                            })
                             .eq('barcode', barcode);
                         
                         if (updateError) {
@@ -1257,7 +1477,7 @@
                                 barcode,
                                 name,
                                 stock: quantity,
-                                location
+                                location: location
                             });
                         
                         if (insertError) {
@@ -1361,62 +1581,18 @@
                 return;
             }
             
-            // Waktu transaksi
-            const now = new Date();
-            const date = now.toLocaleDateString();
-            const time = now.toLocaleTimeString();
+            // Waktu transaksi (gunakan format ISO)
+            const createdAt = new Date().toISOString();
             
             try {
-                // Modifikasi langsung di fungsi saveTransaction()
-async function saveTransaction() {
-    // Input type="date" sudah mengembalikan format YYYY-MM-DD
-    const date = dateInput.value; // Langsung pakai value ini
-    
-    const description = descriptionInput.value;
-    const amount = parseFloat(amountInput.value);
-    const type = typeSelect.value;
-    
-    // Validasi
-    if (!date || !description || isNaN(amount) || !type) {
-        showNotification('Harap isi semua field dengan benar!', false);
-        return;
-    }
-    
-    try {
-        // Debug: Pastikan format sudah benar
-        console.log('Tanggal yang dikirim:', date);
-        
-        // Langsung kirim ke Supabase
-        const { data, error } = await supabase
-            .from('transactions')
-            .insert([
-                { 
-                    date: date, // Format YYYY-MM-DD
-                    description: description, 
-                    amount: amount, 
-                    type: type 
-                }
-            ]);
-        
-        if (error) {
-            console.error('Error:', error);
-            showNotification(`Error: ${error.message}`, false);
-            return;
-        }
-        
-        // Reset form
-        descriptionInput.value = '';
-        amountInput.value = '';
-        typeSelect.value = '';
-        
-        showNotification('Transaksi berhasil disimpan!');
-        loadTransactions();
-        
-    } catch (err) {
-        console.error('Exception:', err);
-        showNotification('Terjadi kesalahan', false);
-    }
-}
+                // Simpan transaksi ke Supabase
+                const { error: transactionError } = await supabase
+                    .from('transactions')
+                    .insert({
+                        barcode, name, quantity, type, location, employee, created_at: createdAt
+                    });
+                
+                if (transactionError) throw transactionError;
                 
                 // Update stok barang di Supabase
                 const { data: existingItem, error: selectError } = await supabase
@@ -1432,9 +1608,19 @@ async function saveTransaction() {
                 if (existingItem) {
                     // Jika barang sudah ada, update stok
                     let newStock = existingItem.stock;
+                    let currentLocation = existingItem.location || '';
                     
                     if (type === 'in') {
                         newStock += quantity;
+                        
+                        // Tambahkan lokasi baru jika belum ada
+                        if (location && !currentLocation.includes(location)) {
+                            if (currentLocation) {
+                                currentLocation += `, ${location}`;
+                            } else {
+                                currentLocation = location;
+                            }
+                        }
                     } else {
                         // Cek stok cukup
                         if (existingItem.stock < quantity) {
@@ -1446,7 +1632,10 @@ async function saveTransaction() {
                     
                     const { error: updateError } = await supabase
                         .from('items')
-                        .update({ stock: newStock, location: location })
+                        .update({ 
+                            stock: newStock, 
+                            location: currentLocation
+                        })
                         .eq('barcode', barcode);
                     
                     if (updateError) throw updateError;
@@ -1463,7 +1652,7 @@ async function saveTransaction() {
                             barcode,
                             name,
                             stock: quantity,
-                            location
+                            location: location
                         });
                     
                     if (insertError) throw insertError;
@@ -1474,6 +1663,7 @@ async function saveTransaction() {
                 
                 // Reset form
                 itemForm.reset();
+                locationList.innerHTML = '';
                 
                 // Tampilkan notifikasi
                 showNotification('Data berhasil disimpan!');
@@ -1502,4 +1692,3 @@ async function saveTransaction() {
     </script>
 </body>
 </html>
-
